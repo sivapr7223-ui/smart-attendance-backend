@@ -199,7 +199,11 @@ class AttendanceService {
         return { isHoliday: true, reason: holiday.name };
       }
       if (holiday.type === "SATURDAY_WORKING" && dayOfWeek === 6) {
-        return { isHoliday: false, mappedDay: holiday.mappedDay };
+        return {
+          isHoliday: false,
+          isWorkingDay: true,
+          mappedDay: holiday.mappedDay,
+        };
       }
     }
 
