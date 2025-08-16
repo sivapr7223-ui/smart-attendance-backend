@@ -188,30 +188,42 @@ class AttendanceService {
     // Sunday is always holiday
     if (dayOfWeek === 0) return { isHoliday: true, reason: "Sunday" };
 
-    // Check special holidays
+    // Set date to start of day for comparison
+    const checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+
+    // Check for any holiday declarations for this date
     const holiday = await Holiday.findOne({
-      startDate: { $lte: date },
-      endDate: { $gte: date },
+      startDate: { $lte: checkDate },
+      endDate: { $gte: checkDate },
     });
+
+    // Debug log
+    console.log("Checking date:", checkDate);
+    console.log("Found holiday record:", holiday);
 
     if (holiday) {
       if (holiday.type === "SPECIAL") {
         return { isHoliday: true, reason: holiday.name };
       }
+
+      // If it's a Saturday working day declaration
       if (holiday.type === "SATURDAY_WORKING" && dayOfWeek === 6) {
         return {
-          isHoliday: false,
+          isHoliday: false, // Not a holiday
           isWorkingDay: true,
           mappedDay: holiday.mappedDay,
+          reason: "Working Saturday",
         };
       }
     }
 
-    // Saturday default behavior
+    // Default Saturday behavior (holiday if no working day declared)
     if (dayOfWeek === 6) {
       return { isHoliday: true, reason: "Saturday" };
     }
 
+    // Regular weekday
     return { isHoliday: false };
   }
 }
@@ -348,11 +360,9 @@ class ReportService {
 
     // Header
     doc.fontSize(20).text("Attendance Report", { align: "center" });
-    doc
-      .fontSize(14)
-      .text(`Class: ${classInfo.name} - ${classInfo.section}`, {
-        align: "center",
-      });
+    doc.fontSize(14).text(`Class: ${classInfo.name} - ${classInfo.section}`, {
+      align: "center",
+    });
     doc
       .fontSize(12)
       .text(
