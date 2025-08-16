@@ -23,15 +23,15 @@ app.use(
     origin: [
       "http://localhost:3000",
       "http://localhost:5173",
-      "http://10.34.7.43:3000",
       "capacitor://localhost",
+      "https://localhost",
       "http://localhost",
-      'https://localhost',
-      'https://smart-attendance-backend-cadt.onrender.com'// For Capacitor
+      "https://smart-attendance-backend-cadt.onrender.com", // Add your Render URL
     ],
     credentials: true,
   })
 );
+
 app.use(express.json());
 
 // Rate limiting
@@ -379,25 +379,41 @@ app.post('/api/attendance/session/start',
   async (req, res) => {
     try {
       const { classId, period, mode } = req.body;
-      
+
       // Check if holiday
       const holidayStatus = await AttendanceService.isHoliday(new Date());
       if (holidayStatus.isHoliday) {
-        return res.status(400).json({ 
-          error: `Cannot take attendance on ${holidayStatus.reason}` 
+        return res.status(400).json({
+          error: `Cannot take attendance on ${holidayStatus.reason}`,
         });
+      }
+
+      // If it's a working Saturday, get the mapped timetable
+      let effectiveDay = today.getDay();
+      if (holidayStatus.isWorkingDay && holidayStatus.mappedDay) {
+        // Map to the specified day's timetable
+        const dayMap = {
+          monday: 1,
+          tuesday: 2,
+          wednesday: 3,
+          thursday: 4,
+          friday: 5,
+        };
+        effectiveDay = dayMap[holidayStatus.mappedDay];
       }
 
       // Check if session already exists
       const existingSession = await Session.findOne({
         classId,
-        date: new Date().setHours(0,0,0,0),
+        date: new Date().setHours(0, 0, 0, 0),
         period,
-        isActive: true
+        isActive: true,
       });
 
       if (existingSession) {
-        return res.status(400).json({ error: 'Session already active for this period' });
+        return res
+          .status(400)
+          .json({ error: "Session already active for this period" });
       }
 
       // Create session
@@ -414,12 +430,73 @@ app.post('/api/attendance/session/start',
         token: session.token,
         code: session.code,
         ssid: session.ssid,
-        expiresAt: session.expiresAt
+        expiresAt: session.expiresAt,
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
 });
+
+// Quick Saturday working day declaration (CC only)
+app.post('/api/holidays/saturday-working',
+  authenticate,
+  authorize(['CC']),
+  auditLog('DECLARE_SATURDAY_WORKING'),
+  [
+    body('date').isISO8601(),
+    body('mappedDay').isIn(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+  ],
+  handleValidation,
+  async (req, res) => {
+    try {
+      const { date, mappedDay } = req.body;
+      const targetDate = new Date(date);
+      
+      // Check if it's actually a Saturday
+      if (targetDate.getDay() !== 6) {
+        return res.status(400).json({ error: 'Selected date is not a Saturday' });
+      }
+
+      // Check if already declared
+      const existing = await Holiday.findOne({
+        startDate: { $lte: targetDate },
+        endDate: { $gte: targetDate },
+        type: 'SATURDAY_WORKING'
+      });
+
+      if (existing) {
+        return res.status(400).json({ error: 'This Saturday is already declared as working day' });
+      }
+
+      // Create Saturday working day
+      const holiday = await Holiday.create({
+        name: `Saturday Working Day - ${mappedDay} timetable`,
+        startDate: targetDate,
+        endDate: targetDate,
+        type: 'SATURDAY_WORKING',
+        mappedDay,
+        createdBy: req.user._id
+      });
+
+      // Notify all users
+      const students = await Student.find({ fcmToken: { $exists: true } });
+      const teachers = await Teacher.find({ fcmToken: { $exists: true } });
+      
+      const message = `Saturday ${targetDate.toDateString()} is a working day with ${mappedDay} timetable`;
+
+      const notifications = [
+        ...students.map(s => NotificationService.notifyUser(s._id, 'student', 'Saturday Working Day', message)),
+        ...teachers.map(t => NotificationService.notifyUser(t._id, 'teacher', 'Saturday Working Day', message))
+      ];
+
+      await Promise.all(notifications);
+
+      res.status(201).json(holiday);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+});
+
 
 // Mark Attendance (Student)
 app.post(
