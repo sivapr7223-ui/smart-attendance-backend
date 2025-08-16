@@ -366,6 +366,7 @@ app.get('/api/classes/:classId/students',
 // ===================== ATTENDANCE ROUTES =====================
 
 // Start Attendance Session (Teacher)
+// Start Attendance Session (Teacher)
 app.post('/api/attendance/session/start',
   authenticate,
   authorize(['CC', 'STAFF']),
@@ -379,41 +380,31 @@ app.post('/api/attendance/session/start',
   async (req, res) => {
     try {
       const { classId, period, mode } = req.body;
-
+      
       // Check if holiday
-      const holidayStatus = await AttendanceService.isHoliday(new Date());
-      if (holidayStatus.isHoliday) {
-        return res.status(400).json({
-          error: `Cannot take attendance on ${holidayStatus.reason}`,
+      const today = new Date();
+      const holidayStatus = await AttendanceService.isHoliday(today);
+      
+      // Debug log to see what's returned
+      console.log('Holiday status for attendance:', JSON.stringify(holidayStatus));
+      
+      // Only block if it's a holiday AND not a working day
+      if (holidayStatus.isHoliday === true) {
+        return res.status(400).json({ 
+          error: `Cannot take attendance on ${holidayStatus.reason}` 
         });
-      }
-
-      // If it's a working Saturday, get the mapped timetable
-      let effectiveDay = today.getDay();
-      if (holidayStatus.isWorkingDay && holidayStatus.mappedDay) {
-        // Map to the specified day's timetable
-        const dayMap = {
-          monday: 1,
-          tuesday: 2,
-          wednesday: 3,
-          thursday: 4,
-          friday: 5,
-        };
-        effectiveDay = dayMap[holidayStatus.mappedDay];
       }
 
       // Check if session already exists
       const existingSession = await Session.findOne({
         classId,
-        date: new Date().setHours(0, 0, 0, 0),
+        date: new Date().setHours(0,0,0,0),
         period,
-        isActive: true,
+        isActive: true
       });
 
       if (existingSession) {
-        return res
-          .status(400)
-          .json({ error: "Session already active for this period" });
+        return res.status(400).json({ error: 'Session already active for this period' });
       }
 
       // Create session
@@ -430,12 +421,14 @@ app.post('/api/attendance/session/start',
         token: session.token,
         code: session.code,
         ssid: session.ssid,
-        expiresAt: session.expiresAt,
+        expiresAt: session.expiresAt
       });
     } catch (error) {
+      console.error('Session start error:', error);
       res.status(500).json({ error: error.message });
     }
 });
+
 
 // Quick Saturday working day declaration (CC only)
 app.post('/api/holidays/saturday-working',
