@@ -25,7 +25,8 @@ app.use(
       "http://localhost:5173",
       "http://10.34.7.43:3000",
       "capacitor://localhost",
-      "http://localhost", // For Capacitor
+      "http://localhost",
+      'https://smart-attendance-backend-cadt.onrender.com'// For Capacitor
     ],
     credentials: true,
   })
